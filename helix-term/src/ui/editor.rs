@@ -157,7 +157,15 @@ impl EditorView {
             .area
             .clip_top(view.area.height.saturating_sub(1))
             .clip_bottom(1); // -1 from bottom to remove commandline
-        self.render_statusline(doc, view, statusline_area, surface, theme, is_focused);
+        self.render_statusline(
+            editor,
+            doc,
+            view,
+            statusline_area,
+            surface,
+            theme,
+            is_focused,
+        );
     }
 
     pub fn render_rulers(
@@ -633,6 +641,7 @@ impl EditorView {
 
     pub fn render_statusline(
         &self,
+        editor: &Editor,
         doc: &Document,
         view: &View,
         viewport: Rect,
@@ -641,6 +650,7 @@ impl EditorView {
         is_focused: bool,
     ) {
         StatusLine::render(
+            editor,
             doc,
             view,
             viewport,
