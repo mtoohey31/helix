@@ -642,27 +642,6 @@ impl EditorView {
         );
     }
 
-    pub fn render_statusline(
-        &self,
-        editor: &Editor,
-        doc: &Document,
-        view: &View,
-        viewport: Rect,
-        surface: &mut Surface,
-        theme: &Theme,
-        is_focused: bool,
-    ) {
-        let context = statusline::RenderContext {
-            doc,
-            view,
-            theme,
-            focused: is_focused,
-            spinners: &self.spinners,
-        };
-
-        StatusLine::render(editor, &context, viewport, surface);
-    }
-
     /// Handle events by looking them up in `self.keymaps`. Returns None
     /// if event was handled (a command was executed or a subkeymap was
     /// activated). Only KeymapResult::{NotFound, Cancelled} is returned
