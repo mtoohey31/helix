@@ -29,6 +29,8 @@ use std::borrow::Cow;
 use crossterm::event::{Event, MouseButton, MouseEvent, MouseEventKind};
 use tui::buffer::Buffer as Surface;
 
+use super::statusline;
+
 pub struct EditorView {
     pub keymaps: Keymaps,
     on_next_key: Option<Box<dyn FnOnce(&mut commands::Context, KeyEvent)>>,
@@ -157,15 +159,16 @@ impl EditorView {
             .area
             .clip_top(view.area.height.saturating_sub(1))
             .clip_bottom(1); // -1 from bottom to remove commandline
-        self.render_statusline(
-            editor,
+
+        let context = statusline::RenderContext {
             doc,
             view,
-            statusline_area,
-            surface,
             theme,
-            is_focused,
-        );
+            focused: is_focused,
+            spinners: &self.spinners,
+        };
+
+        StatusLine::render(editor, &context, statusline_area, surface);
     }
 
     pub fn render_rulers(
@@ -649,16 +652,15 @@ impl EditorView {
         theme: &Theme,
         is_focused: bool,
     ) {
-        StatusLine::render(
-            editor,
+        let context = statusline::RenderContext {
             doc,
             view,
-            viewport,
-            surface,
             theme,
-            is_focused,
-            &self.spinners,
-        );
+            focused: is_focused,
+            spinners: &self.spinners,
+        };
+
+        StatusLine::render(editor, &context, viewport, surface);
     }
 
     /// Handle events by looking them up in `self.keymaps`. Returns None
