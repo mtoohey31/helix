@@ -820,108 +820,117 @@ impl EditorView {
             center,
             right,
         } = cx.editor.config().status_line.clone();
-        if left.contains(&StatusLineElement::Scope)
-            || center.contains(&StatusLineElement::Scope)
-            || right.contains(&StatusLineElement::Scope)
+        if !left.contains(&StatusLineElement::Scope)
+            && !center.contains(&StatusLineElement::Scope)
+            && !right.contains(&StatusLineElement::Scope)
         {
-            let doc = doc!(cx.editor);
-            if let Some(language_server) = doc.language_server() {
-                use helix_lsp::lsp::DocumentSymbolResponse;
-
-                let future = language_server.document_symbols(doc.identifier());
-                cx.callback(
-                    future,
-                    move |editor, compositor, response: Option<DocumentSymbolResponse>| {
-                        let (view, doc) = current!(editor);
-                        let text = doc.text().slice(..);
-                        let cursor = doc.selection(view.id).primary().cursor(text);
-                        let cursor_coords = coords_at_pos(text, cursor);
-
-                        let ui = compositor.find::<EditorView>().unwrap();
-                        ui.set_scopes(match response {
-                            Some(DocumentSymbolResponse::Flat(symbols)) => {
-                                // determine what symbols are cursor's location is located within
-                                let mut containing_symbols = symbols
-                                    .into_iter()
-                                    .filter(|si| {
-                                        let range = si.location.range;
-                                        (range.start.line as usize)
-                                            .cmp(&cursor_coords.row)
-                                            .then(
-                                                (range.start.character as usize)
-                                                    .cmp(&cursor_coords.col),
-                                            )
-                                            .is_le()
-                                            && (range.end.line as usize)
-                                                .cmp(&cursor_coords.row)
-                                                .then(
-                                                    (range.end.character as usize)
-                                                        .cmp(&cursor_coords.col),
-                                                )
-                                                .is_ge()
-                                    })
-                                    .collect::<Vec<_>>();
-                                // sort them from largest length (outermost) to smallest (innermost)
-                                containing_symbols.sort_by(|a, b| {
-                                    let a_len = pos_at_position(text, a.location.range.end)
-                                        - pos_at_position(text, a.location.range.start);
-                                    let b_len = pos_at_position(text, b.location.range.end)
-                                        - pos_at_position(text, b.location.range.start);
-                                    b_len.cmp(&a_len)
-                                });
-                                // store only the name and tuple, since they're all we need to render
-                                // the statusline
-                                containing_symbols
-                                    .into_iter()
-                                    .map(|si| (si.name, si.kind))
-                                    .collect::<Vec<_>>()
-                            }
-                            Some(DocumentSymbolResponse::Nested(symbols)) => {
-                                // determine what symbols are cursor's location is located within
-                                let mut containing_symbols = symbols
-                                    .into_iter()
-                                    .filter(|ds| {
-                                        let range = ds.range;
-                                        (range.start.line as usize)
-                                            .cmp(&cursor_coords.row)
-                                            .then(
-                                                (range.start.character as usize)
-                                                    .cmp(&cursor_coords.col),
-                                            )
-                                            .is_le()
-                                            && (range.end.line as usize)
-                                                .cmp(&cursor_coords.row)
-                                                .then(
-                                                    (range.end.character as usize)
-                                                        .cmp(&cursor_coords.col),
-                                                )
-                                                .is_ge()
-                                    })
-                                    .collect::<Vec<_>>();
-                                // sort them from largest length (outermost) to smallest (innermost)
-                                containing_symbols.sort_by(|a, b| {
-                                    let a_len = pos_at_position(text, a.range.end)
-                                        - pos_at_position(text, a.range.start);
-                                    let b_len = pos_at_position(text, b.range.end)
-                                        - pos_at_position(text, b.range.start);
-                                    b_len.cmp(&a_len)
-                                });
-                                // store only the name and tuple, since they're all we need to render
-                                // the statusline
-                                containing_symbols
-                                    .into_iter()
-                                    .map(|ds| (ds.name, ds.kind))
-                                    .collect::<Vec<_>>()
-                            }
-                            None => Vec::new(),
-                        });
-                    },
-                );
-            };
-            EventResult::Consumed(None)
-        } else {
-            EventResult::Ignored(None)
+            return EventResult::Ignored(None);
         }
+
+        let doc = doc!(cx.editor);
+        if let Some(language_server) = doc.language_server() {
+            use helix_lsp::lsp::{DocumentSymbolOptions, DocumentSymbolResponse, OneOf};
+
+            let capabilities = language_server.capabilities();
+            if !match &capabilities.document_symbol_provider {
+                Some(OneOf::Left(bool)) => *bool,
+                Some(OneOf::Right(DocumentSymbolOptions { .. })) => true,
+                None => false,
+            } {
+                return EventResult::Ignored(None);
+            }
+
+            let future = language_server.document_symbols(doc.identifier());
+            cx.callback(
+                future,
+                move |editor, compositor, response: Option<DocumentSymbolResponse>| {
+                    let (view, doc) = current!(editor);
+                    let text = doc.text().slice(..);
+                    let cursor = doc.selection(view.id).primary().cursor(text);
+                    let cursor_coords = coords_at_pos(text, cursor);
+
+                    let ui = compositor.find::<EditorView>().unwrap();
+                    ui.set_scopes(match response {
+                        Some(DocumentSymbolResponse::Flat(symbols)) => {
+                            // determine what symbols are cursor's location is located within
+                            let mut containing_symbols = symbols
+                                .into_iter()
+                                .filter(|si| {
+                                    let range = si.location.range;
+                                    (range.start.line as usize)
+                                        .cmp(&cursor_coords.row)
+                                        .then(
+                                            (range.start.character as usize)
+                                                .cmp(&cursor_coords.col),
+                                        )
+                                        .is_le()
+                                        && (range.end.line as usize)
+                                            .cmp(&cursor_coords.row)
+                                            .then(
+                                                (range.end.character as usize)
+                                                    .cmp(&cursor_coords.col),
+                                            )
+                                            .is_ge()
+                                })
+                                .collect::<Vec<_>>();
+                            // sort them from largest length (outermost) to smallest (innermost)
+                            containing_symbols.sort_by(|a, b| {
+                                let a_len = pos_at_position(text, a.location.range.end)
+                                    - pos_at_position(text, a.location.range.start);
+                                let b_len = pos_at_position(text, b.location.range.end)
+                                    - pos_at_position(text, b.location.range.start);
+                                b_len.cmp(&a_len)
+                            });
+                            // store only the name and tuple, since they're all we need to render
+                            // the statusline
+                            containing_symbols
+                                .into_iter()
+                                .map(|si| (si.name, si.kind))
+                                .collect::<Vec<_>>()
+                        }
+                        Some(DocumentSymbolResponse::Nested(symbols)) => {
+                            // determine what symbols are cursor's location is located within
+                            let mut containing_symbols = symbols
+                                .into_iter()
+                                .filter(|ds| {
+                                    let range = ds.range;
+                                    (range.start.line as usize)
+                                        .cmp(&cursor_coords.row)
+                                        .then(
+                                            (range.start.character as usize)
+                                                .cmp(&cursor_coords.col),
+                                        )
+                                        .is_le()
+                                        && (range.end.line as usize)
+                                            .cmp(&cursor_coords.row)
+                                            .then(
+                                                (range.end.character as usize)
+                                                    .cmp(&cursor_coords.col),
+                                            )
+                                            .is_ge()
+                                })
+                                .collect::<Vec<_>>();
+                            // sort them from largest length (outermost) to smallest (innermost)
+                            containing_symbols.sort_by(|a, b| {
+                                let a_len = pos_at_position(text, a.range.end)
+                                    - pos_at_position(text, a.range.start);
+                                let b_len = pos_at_position(text, b.range.end)
+                                    - pos_at_position(text, b.range.start);
+                                b_len.cmp(&a_len)
+                            });
+                            // store only the name and tuple, since they're all we need to render
+                            // the statusline
+                            containing_symbols
+                                .into_iter()
+                                .map(|ds| (ds.name, ds.kind))
+                                .collect::<Vec<_>>()
+                        }
+                        None => Vec::new(),
+                    });
+                },
+            );
+        };
+        EventResult::Consumed(None)
     }
 
     pub fn set_scopes(&mut self, scopes: Vec<(String, helix_lsp::lsp::SymbolKind)>) {
