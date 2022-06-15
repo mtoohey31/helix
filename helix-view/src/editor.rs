@@ -183,7 +183,7 @@ impl Default for StatusLineConfig {
         use StatusLineElement as E;
 
         Self {
-            left: vec![E::Mode, E::Spinner, E::FileName],
+            left: vec![E::Mode, E::Spinner, E::FileName, E::Scope],
             center: vec![],
             right: vec![E::Diagnostics, E::Selections, E::Position, E::FileEncoding],
         }
@@ -199,7 +199,7 @@ pub enum StatusLineElement {
     /// The LSP activity spinner
     Spinner,
 
-    /// The file nane/path, including a dirty flag if it's unsaved
+    /// The file name/path, including a dirty flag if it's unsaved
     FileName,
 
     /// The file encoding
@@ -216,6 +216,9 @@ pub enum StatusLineElement {
 
     /// The cursor position
     Position,
+
+    /// The scope where the cursor is located, determined using the language server
+    Scope,
 }
 
 // Cursor shape is read and used on every rendered frame and so needs

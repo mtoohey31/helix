@@ -1,4 +1,5 @@
 use helix_core::{coords_at_pos, encoding};
+use helix_lsp::lsp::SymbolKind;
 use helix_view::{
     document::{Mode, SCRATCH_BUFFER_NAME},
     graphics::Rect,
@@ -18,6 +19,7 @@ pub struct RenderContext<'a> {
     pub theme: &'a Theme,
     pub focused: bool,
     pub spinners: &'a ProgressSpinners,
+    pub scopes: &'a Vec<(String, SymbolKind)>,
     pub parts: RenderBuffer<'a>,
 }
 
@@ -28,6 +30,7 @@ impl<'a> RenderContext<'a> {
         theme: &'a Theme,
         focused: bool,
         spinners: &'a ProgressSpinners,
+        scopes: &'a Vec<(String, SymbolKind)>,
     ) -> Self {
         RenderContext {
             doc,
@@ -35,6 +38,7 @@ impl<'a> RenderContext<'a> {
             theme,
             focused,
             spinners,
+            scopes,
             parts: RenderBuffer::default(),
         }
     }
@@ -119,7 +123,8 @@ impl StatusLine {
         let spacing = 1u16;
 
         let edge_width = context.parts.left.width().max(context.parts.right.width()) as u16;
-        let center_max_width = viewport.width - (2 * edge_width + 2 * spacing);
+        // TODO: fix sub overflows here better, is saturating sub correct?
+        let center_max_width = viewport.width.saturating_sub(2 * edge_width + 2 * spacing);
         let center_width = center_max_width.min(context.parts.center.width() as u16);
 
         surface.set_spans(
@@ -150,6 +155,7 @@ impl StatusLine {
             helix_view::editor::StatusLineElement::Diagnostics => Self::render_diagnostics,
             helix_view::editor::StatusLineElement::Selections => Self::render_selections,
             helix_view::editor::StatusLineElement::Position => Self::render_position,
+            helix_view::editor::StatusLineElement::Scope => Self::render_scope,
         }
     }
 
@@ -328,5 +334,51 @@ impl StatusLine {
         };
 
         write(context, title, None);
+    }
+
+    fn render_scope<F>(context: &mut RenderContext, write: F)
+    where
+        F: Fn(&mut RenderContext, String, Option<Style>) + Copy,
+    {
+        if let Some(scope_string) = context
+            .scopes
+            .into_iter()
+            .map(|(name, kind)| {
+                match *kind {
+                    SymbolKind::FILE => " ",
+                    SymbolKind::MODULE => " ",
+                    SymbolKind::NAMESPACE => " ",
+                    SymbolKind::PACKAGE => " ",
+                    SymbolKind::CLASS => " ",
+                    SymbolKind::METHOD => " ",
+                    SymbolKind::PROPERTY => " ",
+                    SymbolKind::FIELD => " ",
+                    SymbolKind::CONSTRUCTOR => " ",
+                    SymbolKind::ENUM => "練",
+                    SymbolKind::INTERFACE => "練",
+                    SymbolKind::FUNCTION => " ",
+                    SymbolKind::VARIABLE => " ",
+                    SymbolKind::CONSTANT => " ",
+                    SymbolKind::STRING => " ",
+                    SymbolKind::NUMBER => " ",
+                    SymbolKind::BOOLEAN => "◩ ",
+                    SymbolKind::ARRAY => " ",
+                    SymbolKind::OBJECT => " ",
+                    SymbolKind::KEY => " ",
+                    SymbolKind::NULL => "ﳠ ",
+                    SymbolKind::ENUM_MEMBER => " ",
+                    SymbolKind::STRUCT => " ",
+                    SymbolKind::EVENT => " ",
+                    SymbolKind::OPERATOR => " ",
+                    SymbolKind::TYPE_PARAMETER => " ",
+                    _ => "  ",
+                }
+                .to_owned()
+                    + name.as_str()
+            })
+            .reduce(|a, b| a + " > " + b.as_str())
+        {
+            write(context, format!(" {} ", scope_string), None);
+        }
     }
 }

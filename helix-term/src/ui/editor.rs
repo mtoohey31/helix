@@ -7,10 +7,12 @@ use crate::{
 };
 
 use helix_core::{
+    coords_at_pos,
     graphemes::{
         ensure_grapheme_boundary_next_byte, next_grapheme_boundary, prev_grapheme_boundary,
     },
     movement::Direction,
+    pos_at_coords,
     syntax::{self, HighlightEvent},
     unicode::segmentation::UnicodeSegmentation,
     unicode::width::UnicodeWidthStr,
@@ -36,6 +38,7 @@ pub struct EditorView {
     on_next_key: Option<Box<dyn FnOnce(&mut commands::Context, KeyEvent)>>,
     last_insert: (commands::MappableCommand, Vec<InsertEvent>),
     pub(crate) completion: Option<Completion>,
+    scopes: Vec<(String, helix_lsp::lsp::SymbolKind)>,
     spinners: ProgressSpinners,
 }
 
@@ -59,6 +62,7 @@ impl EditorView {
             on_next_key: None,
             last_insert: (commands::MappableCommand::normal_mode, Vec::new()),
             completion: None,
+            scopes: Vec::new(),
             spinners: ProgressSpinners::default(),
         }
     }
@@ -160,8 +164,14 @@ impl EditorView {
             .clip_top(view.area.height.saturating_sub(1))
             .clip_bottom(1); // -1 from bottom to remove commandline
 
-        let mut context =
-            statusline::RenderContext::new(doc, view, theme, is_focused, &self.spinners);
+        let mut context = statusline::RenderContext::new(
+            doc,
+            view,
+            theme,
+            is_focused,
+            &self.spinners,
+            &self.scopes,
+        );
 
         StatusLine::render(editor, &mut context, statusline_area, surface);
     }
@@ -787,14 +797,7 @@ impl EditorView {
         editor.clear_idle_timer(); // don't retrigger
     }
 
-    pub fn handle_idle_timeout(&mut self, cx: &mut crate::compositor::Context) -> EventResult {
-        if self.completion.is_some()
-            || !cx.editor.config().auto_completion
-            || doc!(cx.editor).mode != Mode::Insert
-        {
-            return EventResult::Ignored(None);
-        }
-
+    pub fn handle_idle_timeout(&mut self, cx: &mut Context) -> EventResult {
         let mut cx = commands::Context {
             register: None,
             editor: cx.editor,
@@ -803,10 +806,139 @@ impl EditorView {
             callback: None,
             on_next_key_callback: None,
         };
-        crate::commands::insert::idle_completion(&mut cx);
 
-        EventResult::Consumed(None)
+        if self.completion.is_none()
+            && cx.editor.config().auto_completion
+            && doc!(cx.editor).mode == Mode::Insert
+        {
+            crate::commands::insert::idle_completion(&mut cx);
+        }
+
+        use helix_view::editor::{StatusLineConfig, StatusLineElement};
+        let StatusLineConfig {
+            left,
+            center,
+            right,
+        } = cx.editor.config().status_line.clone();
+        if left.contains(&StatusLineElement::Scope)
+            || center.contains(&StatusLineElement::Scope)
+            || right.contains(&StatusLineElement::Scope)
+        {
+            let doc = doc!(cx.editor);
+            if let Some(language_server) = doc.language_server() {
+                use helix_lsp::lsp::DocumentSymbolResponse;
+
+                let future = language_server.document_symbols(doc.identifier());
+                cx.callback(
+                    future,
+                    move |editor, compositor, response: Option<DocumentSymbolResponse>| {
+                        let (view, doc) = current!(editor);
+                        let text = doc.text().slice(..);
+                        let cursor = doc.selection(view.id).primary().cursor(text);
+                        let cursor_coords = coords_at_pos(text, cursor);
+
+                        let ui = compositor.find::<EditorView>().unwrap();
+                        ui.set_scopes(match response {
+                            Some(DocumentSymbolResponse::Flat(symbols)) => {
+                                // determine what symbols are cursor's location is located within
+                                let mut containing_symbols = symbols
+                                    .into_iter()
+                                    .filter(|si| {
+                                        let range = si.location.range;
+                                        (range.start.line as usize)
+                                            .cmp(&cursor_coords.row)
+                                            .then(
+                                                (range.start.character as usize)
+                                                    .cmp(&cursor_coords.col),
+                                            )
+                                            .is_le()
+                                            && (range.end.line as usize)
+                                                .cmp(&cursor_coords.row)
+                                                .then(
+                                                    (range.end.character as usize)
+                                                        .cmp(&cursor_coords.col),
+                                                )
+                                                .is_ge()
+                                    })
+                                    .collect::<Vec<_>>();
+                                // sort them from largest length (outermost) to smallest (innermost)
+                                containing_symbols.sort_by(|a, b| {
+                                    let a_len = pos_at_position(text, a.location.range.end)
+                                        - pos_at_position(text, a.location.range.start);
+                                    let b_len = pos_at_position(text, b.location.range.end)
+                                        - pos_at_position(text, b.location.range.start);
+                                    b_len.cmp(&a_len)
+                                });
+                                // store only the name and tuple, since they're all we need to render
+                                // the statusline
+                                containing_symbols
+                                    .into_iter()
+                                    .map(|si| (si.name, si.kind))
+                                    .collect::<Vec<_>>()
+                            }
+                            Some(DocumentSymbolResponse::Nested(symbols)) => {
+                                // determine what symbols are cursor's location is located within
+                                let mut containing_symbols = symbols
+                                    .into_iter()
+                                    .filter(|ds| {
+                                        let range = ds.range;
+                                        (range.start.line as usize)
+                                            .cmp(&cursor_coords.row)
+                                            .then(
+                                                (range.start.character as usize)
+                                                    .cmp(&cursor_coords.col),
+                                            )
+                                            .is_le()
+                                            && (range.end.line as usize)
+                                                .cmp(&cursor_coords.row)
+                                                .then(
+                                                    (range.end.character as usize)
+                                                        .cmp(&cursor_coords.col),
+                                                )
+                                                .is_ge()
+                                    })
+                                    .collect::<Vec<_>>();
+                                // sort them from largest length (outermost) to smallest (innermost)
+                                containing_symbols.sort_by(|a, b| {
+                                    let a_len = pos_at_position(text, a.range.end)
+                                        - pos_at_position(text, a.range.start);
+                                    let b_len = pos_at_position(text, b.range.end)
+                                        - pos_at_position(text, b.range.start);
+                                    b_len.cmp(&a_len)
+                                });
+                                // store only the name and tuple, since they're all we need to render
+                                // the statusline
+                                containing_symbols
+                                    .into_iter()
+                                    .map(|ds| (ds.name, ds.kind))
+                                    .collect::<Vec<_>>()
+                            }
+                            None => Vec::new(),
+                        });
+                    },
+                );
+            };
+            EventResult::Consumed(None)
+        } else {
+            EventResult::Ignored(None)
+        }
     }
+
+    pub fn set_scopes(&mut self, scopes: Vec<(String, helix_lsp::lsp::SymbolKind)>) {
+        self.scopes = scopes;
+    }
+}
+
+fn pos_at_position(text: helix_core::RopeSlice, pos: helix_lsp::lsp::Position) -> usize {
+    let helix_lsp::lsp::Position { line, character } = pos;
+    pos_at_coords(
+        text,
+        Position {
+            row: line as usize,
+            col: character as usize,
+        },
+        false,
+    )
 }
 
 impl EditorView {
