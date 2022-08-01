@@ -1,4 +1,5 @@
 use helix_core::{coords_at_pos, encoding, Position};
+use helix_lsp::lsp::SymbolKind;
 use helix_view::{
     document::{Mode, SCRATCH_BUFFER_NAME},
     graphics::Rect,
@@ -18,6 +19,7 @@ pub struct RenderContext<'a> {
     pub view: &'a View,
     pub focused: bool,
     pub spinners: &'a ProgressSpinners,
+    pub scope: &'a [(String, SymbolKind)],
     pub parts: RenderBuffer<'a>,
 }
 
@@ -28,6 +30,7 @@ impl<'a> RenderContext<'a> {
         view: &'a View,
         focused: bool,
         spinners: &'a ProgressSpinners,
+        scope: &'a [(String, SymbolKind)],
     ) -> Self {
         RenderContext {
             editor,
@@ -35,6 +38,7 @@ impl<'a> RenderContext<'a> {
             view,
             focused,
             spinners,
+            scope,
             parts: RenderBuffer::default(),
         }
     }
@@ -146,6 +150,7 @@ where
         helix_view::editor::StatusLineElement::PositionPercentage => render_position_percentage,
         helix_view::editor::StatusLineElement::Separator => render_separator,
         helix_view::editor::StatusLineElement::Spacer => render_spacer,
+        helix_view::editor::StatusLineElement::Scope => render_scope,
     }
 }
 
@@ -372,4 +377,52 @@ where
     F: Fn(&mut RenderContext, String, Option<Style>) + Copy,
 {
     write(context, String::from(" "), None);
+}
+
+fn render_scope<F>(context: &mut RenderContext, write: F)
+where
+    F: Fn(&mut RenderContext, String, Option<Style>) + Copy,
+{
+    if let Some(scope_string) = context
+        .scope
+        .into_iter()
+        .map(|(name, kind)| {
+            match kind {
+                // TODO: make these configurable, and default them to something
+                // that everyone's font will support
+                &SymbolKind::FILE => " ",
+                &SymbolKind::MODULE => " ",
+                &SymbolKind::NAMESPACE => " ",
+                &SymbolKind::PACKAGE => " ",
+                &SymbolKind::CLASS => " ",
+                &SymbolKind::METHOD => " ",
+                &SymbolKind::PROPERTY => " ",
+                &SymbolKind::FIELD => " ",
+                &SymbolKind::CONSTRUCTOR => " ",
+                &SymbolKind::ENUM => "練",
+                &SymbolKind::INTERFACE => "練",
+                &SymbolKind::FUNCTION => " ",
+                &SymbolKind::VARIABLE => " ",
+                &SymbolKind::CONSTANT => " ",
+                &SymbolKind::STRING => " ",
+                &SymbolKind::NUMBER => " ",
+                &SymbolKind::BOOLEAN => "◩ ",
+                &SymbolKind::ARRAY => " ",
+                &SymbolKind::OBJECT => " ",
+                &SymbolKind::KEY => " ",
+                &SymbolKind::NULL => "ﳠ ",
+                &SymbolKind::ENUM_MEMBER => " ",
+                &SymbolKind::STRUCT => " ",
+                &SymbolKind::EVENT => " ",
+                &SymbolKind::OPERATOR => " ",
+                &SymbolKind::TYPE_PARAMETER => " ",
+                _ => "?",
+            }
+            .to_string()
+                + name.as_str()
+        })
+        .reduce(|a, b| a + " > " + b.as_str())
+    {
+        write(context, format!(" {} ", scope_string), None);
+    }
 }

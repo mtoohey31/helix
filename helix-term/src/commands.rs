@@ -2825,6 +2825,99 @@ fn goto_prev_diag(cx: &mut Context) {
     goto_pos(editor, pos);
 }
 
+pub fn idle_scope(cx: &mut Context) {
+    use helix_lsp::lsp;
+
+    let (view, doc) = current!(cx.editor);
+    let text = doc.text().slice(..);
+    let cursor = doc.selection(view.id).primary().cursor(text);
+    let cursor_coords = coords_at_pos(text, cursor);
+    let cursor_row = cursor_coords.row;
+    let cursor_col = cursor_coords.col;
+
+    let language_server = match doc.language_server() {
+        Some(language_server) => language_server,
+        None => return,
+    };
+
+    let future = language_server.document_symbols(doc.identifier());
+
+    cx.callback(
+        future,
+        move |_editor, compositor, response: Option<lsp::DocumentSymbolResponse>| {
+            let scope = match response {
+                Some(lsp::DocumentSymbolResponse::Flat(symbols)) => {
+                    // Filter out symbols whose locations don't contain the cursor
+                    let mut symbols_containing_cursor = symbols
+                        .into_iter()
+                        .filter(|si| {
+                            let range = si.location.range;
+                            let start = range.start;
+                            let end = range.end;
+                            (start.line as usize)
+                                .cmp(&cursor_row)
+                                .then_with(|| (start.character as usize).cmp(&cursor_col))
+                                .is_le()
+                                && (end.line as usize)
+                                    .cmp(&cursor_row)
+                                    .then_with(|| (end.character as usize).cmp(&cursor_col))
+                                    .is_ge()
+                        })
+                        .collect::<Vec<_>>();
+                    // Sort the symbols by their locations' start positions
+                    symbols_containing_cursor.sort_by(|a, b| {
+                        let a_start = a.location.range.start;
+                        let b_start = b.location.range.start;
+                        a_start
+                            .line
+                            .cmp(&b_start.line)
+                            .then_with(|| a_start.character.cmp(&b_start.character))
+                    });
+                    symbols_containing_cursor
+                        .into_iter()
+                        .map(|si| (si.name, si.kind))
+                        .collect::<Vec<_>>()
+                }
+                Some(lsp::DocumentSymbolResponse::Nested(symbols)) => {
+                    // Filter out symbols whose locations don't contain the cursor
+                    let mut symbols_containing_cursor = symbols
+                        .into_iter()
+                        .filter(|ds| {
+                            let range = ds.range;
+                            let start = range.start;
+                            let end = range.end;
+                            (start.line as usize)
+                                .cmp(&cursor_row)
+                                .then_with(|| (start.character as usize).cmp(&cursor_col))
+                                .is_le()
+                                && (end.line as usize)
+                                    .cmp(&cursor_row)
+                                    .then_with(|| (end.character as usize).cmp(&cursor_col))
+                                    .is_ge()
+                        })
+                        .collect::<Vec<_>>();
+                    // Sort the symbols by their locations' start positions
+                    symbols_containing_cursor.sort_by(|a, b| {
+                        let a_start = a.range.start;
+                        let b_start = b.range.start;
+                        a_start
+                            .line
+                            .cmp(&b_start.line)
+                            .then_with(|| a_start.character.cmp(&b_start.character))
+                    });
+                    symbols_containing_cursor
+                        .into_iter()
+                        .map(|si| (si.name, si.kind))
+                        .collect::<Vec<_>>()
+                }
+                None => Vec::new(),
+            };
+            let ui = compositor.find::<ui::EditorView>().unwrap();
+            ui.scope = scope;
+        },
+    );
+}
+
 pub mod insert {
     use super::*;
     pub type Hook = fn(&Rope, &Selection, char) -> Option<Transaction>;

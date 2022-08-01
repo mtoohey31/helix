@@ -206,6 +206,16 @@ pub struct StatusLineConfig {
     pub separator: String,
 }
 
+impl StatusLineConfig {
+    // An iterator over all elements of the statusline.
+    pub fn all_elements(&self) -> impl Iterator<Item = &StatusLineElement> {
+        self.left
+            .iter()
+            .chain(self.center.iter())
+            .chain(self.right.iter())
+    }
+}
+
 impl Default for StatusLineConfig {
     fn default() -> Self {
         use StatusLineElement as E;
@@ -228,7 +238,7 @@ pub enum StatusLineElement {
     /// The LSP activity spinner
     Spinner,
 
-    /// The file nane/path, including a dirty flag if it's unsaved
+    /// The file name/path, including a dirty flag if it's unsaved
     FileName,
 
     /// The file encoding
@@ -257,6 +267,10 @@ pub enum StatusLineElement {
 
     /// A single space
     Spacer,
+
+    /// The scope that the primary selection is in, according to the active
+    /// language server, if there is one
+    Scope,
 }
 
 // Cursor shape is read and used on every rendered frame and so needs

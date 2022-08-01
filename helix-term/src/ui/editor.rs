@@ -15,9 +15,10 @@ use helix_core::{
     unicode::width::UnicodeWidthStr,
     LineEnding, Position, Range, Selection, Transaction,
 };
+use helix_lsp::lsp::SymbolKind;
 use helix_view::{
     document::Mode,
-    editor::{CompleteAction, CursorShapeConfig},
+    editor::{CompleteAction, CursorShapeConfig, StatusLineElement},
     graphics::{Color, CursorKind, Modifier, Rect, Style},
     input::KeyEvent,
     keyboard::{KeyCode, KeyModifiers},
@@ -36,6 +37,7 @@ pub struct EditorView {
     on_next_key: Option<Box<dyn FnOnce(&mut commands::Context, KeyEvent)>>,
     last_insert: (commands::MappableCommand, Vec<InsertEvent>),
     pub(crate) completion: Option<Completion>,
+    pub(crate) scope: Vec<(String, SymbolKind)>,
     spinners: ProgressSpinners,
 }
 
@@ -59,6 +61,7 @@ impl EditorView {
             on_next_key: None,
             last_insert: (commands::MappableCommand::normal_mode, Vec::new()),
             completion: None,
+            scope: Vec::new(),
             spinners: ProgressSpinners::default(),
         }
     }
@@ -164,8 +167,14 @@ impl EditorView {
             .clip_top(view.area.height.saturating_sub(1))
             .clip_bottom(1); // -1 from bottom to remove commandline
 
-        let mut context =
-            statusline::RenderContext::new(editor, doc, view, is_focused, &self.spinners);
+        let mut context = statusline::RenderContext::new(
+            editor,
+            doc,
+            view,
+            is_focused,
+            &self.spinners,
+            &self.scope,
+        );
 
         statusline::render(&mut context, statusline_area, surface);
     }
@@ -891,24 +900,45 @@ impl EditorView {
     }
 
     pub fn handle_idle_timeout(&mut self, cx: &mut crate::compositor::Context) -> EventResult {
-        if self.completion.is_some()
-            || !cx.editor.config().auto_completion
-            || doc!(cx.editor).mode != Mode::Insert
+        let mut result = EventResult::Ignored(None);
+
+        if self.completion.is_none()
+            && cx.editor.config().auto_completion
+            && doc!(cx.editor).mode == Mode::Insert
         {
-            return EventResult::Ignored(None);
+            let mut cx = commands::Context {
+                register: None,
+                editor: cx.editor,
+                jobs: cx.jobs,
+                count: None,
+                callback: None,
+                on_next_key_callback: None,
+            };
+
+            crate::commands::insert::idle_completion(&mut cx);
+            result = EventResult::Consumed(None);
         }
 
-        let mut cx = commands::Context {
-            register: None,
-            editor: cx.editor,
-            jobs: cx.jobs,
-            count: None,
-            callback: None,
-            on_next_key_callback: None,
-        };
-        crate::commands::insert::idle_completion(&mut cx);
+        if cx
+            .editor
+            .config()
+            .statusline
+            .all_elements()
+            .any(|e| e == &StatusLineElement::Scope)
+        {
+            let mut cx = commands::Context {
+                register: None,
+                editor: cx.editor,
+                jobs: cx.jobs,
+                count: None,
+                callback: None,
+                on_next_key_callback: None,
+            };
+            crate::commands::idle_scope(&mut cx);
+            result = EventResult::Consumed(None);
+        }
 
-        EventResult::Consumed(None)
+        result
     }
 }
 
