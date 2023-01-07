@@ -1900,7 +1900,7 @@ fn global_search(cx: &mut Context) {
                 .map(|comp| (0.., std::borrow::Cow::Owned(comp.clone())))
                 .collect()
         },
-        move |_editor, regex, event| {
+        move |editor, regex, event| {
             if event != PromptEvent::Validate {
                 return;
             }
@@ -1913,9 +1913,15 @@ fn global_search(cx: &mut Context) {
                     .binary_detection(BinaryDetection::quit(b'\x00'))
                     .build();
 
+                let open_paths = editor
+                    .documents()
+                    .filter_map(Document::path)
+                    .map(PathBuf::as_path)
+                    .collect::<HashSet<_>>();
+
                 let search_root = std::env::current_dir()
                     .expect("Global search error: Failed to get current dir");
-                WalkBuilder::new(search_root)
+                WalkBuilder::new(search_root.clone())
                     .hidden(file_picker_config.hidden)
                     .parents(file_picker_config.parents)
                     .ignore(file_picker_config.ignore)
@@ -1931,6 +1937,7 @@ fn global_search(cx: &mut Context) {
                     .build_parallel()
                     .run(|| {
                         let mut searcher = searcher.clone();
+                        let open_paths = open_paths.clone();
                         let matcher = matcher.clone();
                         let all_matches_sx = all_matches_sx.clone();
                         Box::new(move |entry: Result<DirEntry, ignore::Error>| -> WalkState {
@@ -1944,6 +1951,11 @@ fn global_search(cx: &mut Context) {
                                 // skip everything else
                                 _ => return WalkState::Continue,
                             };
+
+                            // Open paths may have modifications; they are handled below
+                            if open_paths.contains(entry.path()) {
+                                return WalkState::Continue;
+                            }
 
                             let result = searcher.search_path(
                                 &matcher,
@@ -1967,6 +1979,30 @@ fn global_search(cx: &mut Context) {
                             WalkState::Continue
                         })
                     });
+
+                // Handle open paths (without concurrency, since there will
+                // likely be a small amount of these compared to the total
+                // number of files in the directory).
+                for doc in editor.documents() {
+                    let path = match doc.path() {
+                        Some(p) => p,
+                        None => continue,
+                    };
+
+                    for rmatch in regex.find_iter(&doc.text().slice(..).to_string()) {
+                        let line_num = match doc.text().try_byte_to_line(rmatch.start()) {
+                            Ok(l) => l,
+                            Err(_) => continue,
+                        };
+
+                        all_matches_sx
+                            .send(FileResult {
+                                path: path.clone(),
+                                line_num,
+                            })
+                            .unwrap();
+                    }
+                }
             } else {
                 // Otherwise do nothing
                 // log::warn!("Global Search Invalid Pattern")
