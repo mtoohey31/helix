@@ -417,7 +417,7 @@ impl EditorView {
 
         // It's slightly more efficient to produce a full RopeSlice from the Rope, then slice that a bunch
         // of times than it is to always call Rope::slice/get_slice (it will internally always hit RSEnum::Light).
-        let text = doc.text().slice(..);
+        let full_text = doc.text().slice(..);
 
         let characters = &whitespace.characters;
 
@@ -425,7 +425,7 @@ impl EditorView {
         let mut visual_x = 0usize;
         let mut line = 0u16;
         let tab_width = doc.tab_width();
-        let tab = if whitespace.render.tab() == WhitespaceRenderValue::All {
+        let tab = if whitespace.render.tab() != WhitespaceRenderValue::None {
             std::iter::once(characters.tab)
                 .chain(std::iter::repeat(characters.tabpad).take(tab_width - 1))
                 .collect()
@@ -434,7 +434,7 @@ impl EditorView {
         };
         let space = characters.space.to_string();
         let nbsp = characters.nbsp.to_string();
-        let newline = if whitespace.render.newline() == WhitespaceRenderValue::All {
+        let newline = if whitespace.render.newline() != WhitespaceRenderValue::None {
             characters.newline.to_string()
         } else {
             " ".to_string()
@@ -478,6 +478,11 @@ impl EditorView {
             }
         };
 
+        let boundary_only = whitespace.render.space() == WhitespaceRenderValue::Boundary;
+        // Used only for boundary highlighting; should be true to start so that
+        // we render individual starting spaces.
+        let mut was_whitespace = true;
+
         'outer: for event in highlights {
             match event {
                 HighlightEvent::HighlightStart(span) => {
@@ -487,17 +492,19 @@ impl EditorView {
                     spans.pop();
                 }
                 HighlightEvent::Source { start, end } => {
-                    let is_trailing_cursor = text.len_chars() < end;
+                    let is_trailing_cursor = full_text.len_chars() < end;
 
                     // `unwrap_or_else` part is for off-the-end indices of
                     // the rope, to allow cursor highlighting at the end
                     // of the rope.
-                    let text = text.get_slice(start..end).unwrap_or_else(|| " ".into());
+                    let text = full_text
+                        .get_slice(start..end)
+                        .unwrap_or_else(|| " ".into());
                     let style = spans
                         .iter()
                         .fold(text_style, |acc, span| acc.patch(theme.highlight(span.0)));
 
-                    let space = if whitespace.render.space() == WhitespaceRenderValue::All
+                    let space = if whitespace.render.space() != WhitespaceRenderValue::None
                         && !is_trailing_cursor
                     {
                         &space
@@ -505,7 +512,7 @@ impl EditorView {
                         " "
                     };
 
-                    let nbsp = if whitespace.render.nbsp() == WhitespaceRenderValue::All
+                    let nbsp = if whitespace.render.nbsp() != WhitespaceRenderValue::None
                         && text.len_chars() < end
                     {
                         &nbsp
@@ -515,7 +522,8 @@ impl EditorView {
 
                     use helix_core::graphemes::{grapheme_width, RopeGraphemes};
 
-                    for grapheme in RopeGraphemes::new(text) {
+                    let mut graphemes = RopeGraphemes::new(text).peekable();
+                    while let Some(grapheme) = graphemes.next() {
                         let out_of_bounds = offset.col > visual_x
                             || visual_x >= viewport.width as usize + offset.col;
 
@@ -534,6 +542,9 @@ impl EditorView {
 
                             visual_x = 0;
                             line += 1;
+                            // Reset this to true so that we render a leading space on the new line
+                            // if there happens to be one
+                            was_whitespace = true;
                             is_in_indent_area = true;
 
                             // TODO: with proper iter this shouldn't be necessary
@@ -554,7 +565,28 @@ impl EditorView {
                                 (&tab[..grapheme_tab_width], visual_tab_width)
                             } else if grapheme == " " {
                                 is_whitespace = true;
-                                (space, 1)
+                                if boundary_only && !was_whitespace {
+                                    if let Some(next_graphame) = graphemes
+                                        .peek()
+                                        .cloned()
+                                        .or_else(|| full_text.get_slice(end..end + 1))
+                                    {
+                                        let next_grapheme = Cow::from(next_graphame);
+                                        if next_grapheme == "\t"
+                                            || next_grapheme == " "
+                                            || next_grapheme == "\u{00A0}"
+                                            || next_grapheme == "\n"
+                                        {
+                                            (space, 1)
+                                        } else {
+                                            (" ", 1)
+                                        }
+                                    } else {
+                                        (space, 1)
+                                    }
+                                } else {
+                                    (space, 1)
+                                }
                             } else if grapheme == "\u{00A0}" {
                                 is_whitespace = true;
                                 (nbsp, 1)
@@ -605,6 +637,7 @@ impl EditorView {
                             }
 
                             visual_x = visual_x.saturating_add(width);
+                            was_whitespace = is_whitespace;
                         }
                     }
                 }

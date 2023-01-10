@@ -514,6 +514,8 @@ pub enum WhitespaceRenderValue {
     None,
     // TODO
     // Selection,
+    // Trailing,
+    Boundary,
     All,
 }
 
