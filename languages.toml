@@ -3508,3 +3508,15 @@ comment-token = "#"
 [[grammar]]
 name = "ldif"
 source = { git = "https://github.com/kepet19/tree-sitter-ldif", rev = "0a917207f65ba3e3acfa9cda16142ee39c4c1aaa" }
+
+[[language]]
+name = "ott"
+scope = "source.ott"
+injection-regex = "ott"
+file-types = ["ott"]
+comment-token = "%"
+indent = { tab-width = 2, unit = "  " }
+
+[[grammar]]
+name = "ott"
+source = { git = "https://github.com/armonjam/tree-sitter-ott", rev = "25e76e97e6509e2a9a4ab2e59abc77405fb201e4" }
