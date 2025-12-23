@@ -17,7 +17,7 @@ use helix_core::{
     Range, Selection, Tendril, Transaction,
 };
 use helix_event::register_hook;
-use helix_lsp::jsonrpc;
+use helix_lsp::{jsonrpc, util::range_to_lsp_range};
 use helix_view::{
     annotations::diagnostics::DiagnosticFilter,
     document::{DocumentInlayHints, DocumentInlayHintsId, Mode},
@@ -5149,6 +5149,12 @@ callback : (-> any?)
         "Sets the content of the status line, with the error severity"
     );
 
+    register_1!(
+        "cursor-lsp-location",
+        cursor_lsp_location,
+        "Get the LSP location of the cursor's current position under the given offset encoding."
+    );
+
     module.register_fn("send-lsp-command", send_arbitrary_lsp_command);
     module.register_fn("send-lsp-notification", send_arbitrary_lsp_notification);
     if generate_sources {
@@ -6529,6 +6535,27 @@ pub fn cx_pos_within_text(cx: &mut Context) -> usize {
     let selection = doc.selection(view.id).clone();
 
     selection.primary().cursor(text)
+}
+
+pub fn cursor_lsp_location(cx: &mut Context, encoding: SteelString) -> anyhow::Result<SteelVal> {
+    let encoding = match &***encoding {
+        "utf-8" => helix_lsp::OffsetEncoding::Utf8,
+        "utf-16" => helix_lsp::OffsetEncoding::Utf16,
+        "utf-32" => helix_lsp::OffsetEncoding::Utf32,
+        _ => anyhow::bail!("invalid encoding {encoding:?}"),
+    };
+
+    let mut m = serde_json::Map::with_capacity(2);
+
+    let (view, doc) = current_ref!(cx.editor);
+    let range = range_to_lsp_range(doc.text(), doc.selection(view.id).primary(), encoding);
+    m.insert("range".to_string(), serde_json::to_value(range)?);
+
+    if let Some(url) = doc.url() {
+        m.insert("uri".to_string(), Value::String(url.to_string()));
+    }
+
+    Ok(Value::Object(m).try_into()?)
 }
 
 pub fn get_helix_cwd(_cx: &mut Context) -> Option<String> {
