@@ -937,11 +937,11 @@ fn start_client(
     tokio::spawn(async move {
         use futures_util::TryFutureExt;
         let value = _client
-            .capabilities
+            .initialize_result
             .get_or_try_init(|| {
                 _client
                     .initialize(enable_snippets)
-                    .map_ok(|response| response.capabilities)
+                    .map_ok(|response| response)
             })
             .await;
 

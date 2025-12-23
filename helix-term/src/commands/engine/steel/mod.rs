@@ -5155,6 +5155,12 @@ callback : (-> any?)
         "Get the LSP location of the cursor's current position under the given offset encoding."
     );
 
+    register_1!(
+        "get-lsp-initialize-result",
+        get_lsp_initialize_result,
+        "Get the language server's initialize result."
+    );
+
     module.register_fn("send-lsp-command", send_arbitrary_lsp_command);
     module.register_fn("send-lsp-notification", send_arbitrary_lsp_notification);
     if generate_sources {
@@ -6761,6 +6767,19 @@ fn lsp_client_offset_encoding(client: LspClient) -> Option<&'static str> {
             helix_lsp::OffsetEncoding::Utf16 => "utf-16",
             helix_lsp::OffsetEncoding::Utf32 => "utf-32",
         })
+}
+
+fn get_lsp_initialize_result(cx: &mut Context, name: String) -> anyhow::Result<SteelVal> {
+    let initialize_result = anyhow::Context::context(
+        cx.editor
+            .language_servers
+            .iter_clients()
+            .find(|x| x.name() == name),
+        "Unable to find the language server specified!",
+    )?
+    .initialize_result();
+
+    Ok(serde_json::to_value(initialize_result)?.try_into()?)
 }
 
 fn send_arbitrary_lsp_command(
