@@ -826,7 +826,7 @@ impl Application {
 
         match call {
             Call::Notification(helix_lsp::jsonrpc::Notification { method, params, .. }) => {
-                let notification = match Notification::parse(&method, params) {
+                let notification = match Notification::parse(&method, params.clone()) {
                     Ok(notification) => notification,
                     Err(helix_lsp::Error::Unhandled) => {
                         info!("Ignoring Unhandled notification from Language Server");
@@ -1020,22 +1020,22 @@ impl Application {
                         // Remove the language server from the registry.
                         self.editor.language_servers.remove_by_id(server_id);
                     }
-                    Notification::Other(event_name, params) => {
-                        let mut cx = crate::compositor::Context {
-                            editor: &mut self.editor,
-                            scroll: None,
-                            jobs: &mut self.jobs,
-                        };
-
-                        ScriptingEngine::handle_lsp_call(
-                            &mut cx,
-                            server_id,
-                            event_name,
-                            jsonrpc::Id::Null,
-                            params,
-                        );
-                    }
+                    Notification::Other(..) => {}
                 }
+
+                let mut cx = crate::compositor::Context {
+                    editor: &mut self.editor,
+                    scroll: None,
+                    jobs: &mut self.jobs,
+                };
+
+                ScriptingEngine::handle_lsp_call(
+                    &mut cx,
+                    server_id,
+                    method,
+                    jsonrpc::Id::Null,
+                    params,
+                );
             }
             Call::MethodCall(helix_lsp::jsonrpc::MethodCall {
                 method, params, id, ..
