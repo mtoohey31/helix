@@ -138,6 +138,9 @@ pub use document_symbols::*;
 mod file_operations;
 pub use file_operations::*;
 
+mod file_progress;
+pub use file_progress::*;
+
 mod folding_range;
 pub use folding_range::*;
 

@@ -1,6 +1,7 @@
 use std::fmt::Write;
 
 use helix_core::syntax::config::LanguageServerFeature;
+use helix_lsp::lsp::{FileProgressKind, FileProgressProcessingInfo};
 
 use crate::{
     editor::GutterType,
@@ -32,6 +33,7 @@ impl GutterType {
             GutterType::LineNumbers => line_numbers(editor, doc, view, theme, is_focused),
             GutterType::Spacer => padding(editor, doc, view, theme, is_focused),
             GutterType::Diff => diff(editor, doc, view, theme, is_focused),
+            GutterType::Progress => progress(editor, doc, view, theme, is_focused),
         }
     }
 
@@ -41,6 +43,7 @@ impl GutterType {
             GutterType::LineNumbers => line_numbers_width(view, doc),
             GutterType::Spacer => 1,
             GutterType::Diff => 1,
+            GutterType::Progress => doc.progress_received.into(),
         }
     }
 }
@@ -137,6 +140,39 @@ pub fn diff<'doc>(
     } else {
         Box::new(move |_, _, _, _| None)
     }
+}
+
+pub fn progress<'doc>(
+    _editor: &'doc Editor,
+    doc: &'doc Document,
+    _view: &View,
+    theme: &Theme,
+    _is_focused: bool,
+) -> GutterFn<'doc> {
+    let processing = theme.get("diff.delta.gutter");
+    let fatal_error = theme.get("diff.minus.gutter");
+
+    let progress = doc.progress.clone();
+    if progress.is_empty() {
+        return Box::new(move |_, _, _, _| None);
+    }
+
+    Box::new(
+        move |line: usize, _selected: bool, _first_visual_line: bool, out: &mut String| {
+            let Some(FileProgressProcessingInfo { kind, .. }) = progress.iter().find(|fppi| {
+                fppi.range.start.line as usize <= line && line < fppi.range.end.line as usize
+            }) else {
+                return None;
+            };
+
+            let style = match kind {
+                FileProgressKind::Processing => processing,
+                FileProgressKind::FatalError => fatal_error,
+            };
+            write!(out, "▍").unwrap();
+            Some(style)
+        },
+    )
 }
 
 pub fn line_numbers<'doc>(

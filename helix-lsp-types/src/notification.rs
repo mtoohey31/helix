@@ -70,6 +70,9 @@ macro_rules! lsp_notification {
     ("$/progress") => {
         $crate::notification::Progress
     };
+    ("$/lean/fileProgress") => {
+        $crate::notification::FileProgress
+    };
     ("workspace/didCreateFiles") => {
         $crate::notification::DidCreateFiles
     };
@@ -270,6 +273,16 @@ pub enum Progress {}
 impl Notification for Progress {
     type Params = ProgressParams;
     const METHOD: &'static str = "$/progress";
+}
+
+/// The file progress notification is sent from the server to the client to
+/// inform it of how much of the file has been processed.
+#[derive(Debug)]
+pub enum FileProgress {}
+
+impl Notification for FileProgress {
+    type Params = FileProgressParams;
+    const METHOD: &'static str = "$/lean/fileProgress";
 }
 
 /// The `window/workDoneProgress/cancel` notification is sent from the client

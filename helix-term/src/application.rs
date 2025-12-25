@@ -978,6 +978,21 @@ impl Application {
                     Notification::ProgressMessage(_params) => {
                         // do nothing
                     }
+                    Notification::FileProgressMessage(params) => {
+                        let uri = match helix_core::Uri::try_from(params.text_document.uri) {
+                            Ok(uri) => uri,
+                            Err(err) => {
+                                log::error!("{err}");
+                                return;
+                            }
+                        };
+
+                        self.editor.handle_file_progress(
+                            uri,
+                            params.text_document.version,
+                            params.processing,
+                        );
+                    }
                     Notification::Exit => {
                         self.editor.set_status("Language server exited");
 

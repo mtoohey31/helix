@@ -379,6 +379,30 @@ impl Editor {
         }
     }
 
+    pub fn handle_file_progress(
+        &mut self,
+        uri: Uri,
+        version: Option<i32>,
+        processing: Vec<lsp::FileProgressProcessingInfo>,
+    ) {
+        let doc = self
+            .documents
+            .values_mut()
+            .find(|doc| doc.uri().is_some_and(|u| u == uri));
+
+        if let Some((version, doc)) = version.zip(doc.as_ref()) {
+            if version != doc.version() {
+                log::info!("Version ({version}) is out of date for {uri:?} (expected ({})), dropping PublishDiagnostic notification", doc.version());
+                return;
+            }
+        }
+
+        if let Some(doc) = doc {
+            doc.progress = processing;
+            doc.progress_received = true;
+        }
+    }
+
     pub fn execute_lsp_command(&mut self, command: lsp::Command, server_id: LanguageServerId) {
         // the command is executed on the server and communicated back
         // to the client asynchronously using workspace edits

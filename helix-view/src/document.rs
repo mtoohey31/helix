@@ -13,7 +13,7 @@ use helix_core::snippets::{ActiveSnippet, SnippetRenderCtx};
 use helix_core::syntax::config::LanguageServerFeature;
 use helix_core::text_annotations::{InlineAnnotation, Overlay};
 use helix_event::TaskController;
-use helix_lsp::util::lsp_pos_to_pos;
+use helix_lsp::{lsp::FileProgressProcessingInfo, util::lsp_pos_to_pos};
 use helix_stdx::faccess::{copy_metadata, readonly};
 use helix_vcs::{DiffHandle, DiffProviderRegistry};
 use once_cell::sync::OnceCell;
@@ -194,6 +194,8 @@ pub struct Document {
     pub(crate) modified_since_accessed: bool,
 
     pub(crate) diagnostics: Vec<Diagnostic>,
+    pub(crate) progress: Vec<FileProgressProcessingInfo>,
+    pub(crate) progress_received: bool,
     pub(crate) language_servers: HashMap<LanguageServerName, Arc<Client>>,
 
     diff_handle: Option<DiffHandle>,
@@ -321,6 +323,8 @@ impl fmt::Debug for Document {
             .field("version", &self.version)
             .field("modified_since_accessed", &self.modified_since_accessed)
             .field("diagnostics", &self.diagnostics)
+            .field("progress", &self.progress)
+            .field("progress_received", &self.progress_received)
             // .field("language_server", &self.language_server)
             .finish()
     }
@@ -720,6 +724,8 @@ impl Document {
             changes,
             old_state,
             diagnostics: Vec::new(),
+            progress: Vec::new(),
+            progress_received: false,
             version: 0,
             history: Cell::new(History::default()),
             savepoints: Vec::new(),

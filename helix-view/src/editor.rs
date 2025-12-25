@@ -97,6 +97,7 @@ impl Default for GutterConfig {
     fn default() -> Self {
         Self {
             layout: vec![
+                GutterType::Progress,
                 GutterType::Diagnostics,
                 GutterType::Spacer,
                 GutterType::LineNumbers,
@@ -799,6 +800,8 @@ pub enum GutterType {
     Spacer,
     /// Highlight local changes
     Diff,
+    /// Show language server processing progress
+    Progress,
 }
 
 impl std::str::FromStr for GutterType {
