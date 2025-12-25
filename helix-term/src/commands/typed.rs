@@ -1718,6 +1718,63 @@ fn lsp_restart(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> 
     }
 }
 
+fn lsp_restart_file(
+    cx: &mut compositor::Context,
+    args: Args,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+
+    let doc = doc!(cx.editor);
+    let config = doc
+        .language_config()
+        .context("LSP not defined for the current document")?;
+
+    // if doc doesn't have a URL it's a scratch buffer, ignore it
+    let Some(doc_url) = doc.url() else {
+        return Ok(());
+    };
+
+    let language_id = doc.language_id().map(ToOwned::to_owned).unwrap_or_default();
+
+    let language_servers: Vec<_> = config
+        .language_servers
+        .iter()
+        .map(|ls| ls.name.as_str())
+        .collect();
+    let language_servers = if args.is_empty() {
+        language_servers
+    } else {
+        let (valid, invalid): (Vec<_>, Vec<_>) = args
+            .iter()
+            .map(|arg| arg.as_ref())
+            .partition(|name| language_servers.contains(name));
+        if !invalid.is_empty() {
+            let s = if invalid.len() == 1 { "" } else { "s" };
+            bail!("Unknown language server{s}: {}", invalid.join(", "));
+        }
+        valid
+    };
+
+    for language_server in doc.language_servers() {
+        if !language_servers.contains(&language_server.name()) {
+            continue;
+        }
+
+        language_server.text_document_did_close(doc.identifier());
+        language_server.text_document_did_open(
+            doc_url.clone(),
+            doc.version(),
+            doc.text(),
+            language_id.clone(),
+        );
+    }
+
+    Ok(())
+}
+
 fn lsp_stop(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow::Result<()> {
     if event != PromptEvent::Validate {
         return Ok(());
@@ -3384,6 +3441,17 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         aliases: &[],
         doc: "Restarts the given language servers, or all language servers that are used by the current file if no arguments are supplied",
         fun: lsp_restart,
+        completer: CommandCompleter::all(completers::configured_language_servers),
+        signature: Signature {
+            positionals: (0, None),
+            ..Signature::DEFAULT
+        },
+    },
+    TypableCommand {
+        name: "lsp-restart-file",
+        aliases: &[],
+        doc: "Restarts the current file in the given language servers, or all language servers that are used by the current file if no arguments are supplied",
+        fun: lsp_restart_file,
         completer: CommandCompleter::all(completers::configured_language_servers),
         signature: Signature {
             positionals: (0, None),
