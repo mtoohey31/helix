@@ -420,18 +420,13 @@ fn send_arbitrary_lsp_notification(
 ) -> anyhow::Result<()> {
     let argument = params.map(|x| serde_json::Value::try_from(x).unwrap());
 
-    let (_view, doc) = current!(cx.editor);
-
-    let language_server_id = anyhow::Context::context(
-        doc.language_servers().find(|x| x.name() == name.as_str()),
+    let language_server = &**anyhow::Context::context(
+        cx.editor
+            .language_servers
+            .iter_clients()
+            .find(|x| x.name() == name.as_str()),
         "Unable to find the language server specified!",
-    )?
-    .id();
-
-    let language_server = cx
-        .editor
-        .language_server_by_id(language_server_id)
-        .ok_or(anyhow::anyhow!("Failed to find a language server by id"))?;
+    )?;
 
     // Send the notification using the custom method and arguments
     language_server.send_custom_notification(method.to_string(), argument)?;
@@ -6792,20 +6787,15 @@ fn send_arbitrary_lsp_command(
 ) -> anyhow::Result<()> {
     let argument = json_argument.map(|x| serde_json::Value::try_from(x).unwrap());
 
-    let (_view, doc) = current!(cx.editor);
-
-    let language_server_id = anyhow::Context::context(
-        doc.language_servers().find(|x| x.name() == name.as_str()),
+    let language_server = &**anyhow::Context::context(
+        cx.editor
+            .language_servers
+            .iter_clients()
+            .find(|x| x.name() == name.as_str()),
         "Unable to find the language server specified!",
-    )?
-    .id();
+    )?;
 
-    let future = match cx
-        .editor
-        .language_server_by_id(language_server_id)
-        .and_then(|language_server| {
-            language_server.non_standard_extension(command.to_string(), argument)
-        }) {
+    let future = match language_server.non_standard_extension(command.to_string(), argument) {
         Some(future) => future,
         None => {
             // TODO: Come up with a better message once we check the capabilities for
